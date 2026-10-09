@@ -1,33 +1,50 @@
 
 import joblib
 import pytest
+import pandas as pd
+
 from sklearn.datasets import load_iris
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 import app as iris_app
 
 
+FEATURES = [
+    "sepal_length",
+    "sepal_width",
+    "petal_length",
+    "petal_width",
+]
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    model_path = tmp_path / "iris_model.pkl"
+    # Load the built-in Iris dataset
+    iris = load_iris(as_frame=True)
 
-    iris_data = load_iris(as_frame=True)
-    model = joblib.load("iris_model.pkl") if False else None
+    X = iris.data.copy()
+    X.columns = FEATURES
+    y = iris.target_names[iris.target]
 
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.linear_model import LogisticRegression
-
-    X = iris_data.data
-    y = iris_data.target
-
-    pipeline = Pipeline([
+    # Train a temporary model using the API's feature names
+    model = Pipeline([
         ("scaler", StandardScaler()),
         ("classifier", LogisticRegression(max_iter=1000)),
     ])
-    pipeline.fit(X, y)
 
-    joblib.dump(pipeline, model_path)
-    monkeypatch.setattr(iris_app, "MODEL_PATH", str(model_path))
+    model.fit(X, y)
+
+    model_path = tmp_path / "iris_model.pkl"
+    joblib.dump(model, model_path)
+
+    # Tell the Flask API to use the temporary model
+    monkeypatch.setattr(
+        iris_app,
+        "MODEL_PATH",
+        str(model_path)
+    )
 
     iris_app.app.config["TESTING"] = True
 
@@ -37,8 +54,11 @@ def client(tmp_path, monkeypatch):
 
 def test_home_endpoint(client):
     response = client.get("/")
+
     assert response.status_code == 200
-    assert response.json["message"] == "Iris Prediction API is running"
+    assert response.json["message"] == (
+        "Iris Prediction API is running"
+    )
 
 
 def test_valid_prediction(client):
@@ -53,14 +73,7 @@ def test_valid_prediction(client):
     )
 
     assert response.status_code == 200
-    assert response.json["predicted_species"] in [
-        "setosa",
-        "versicolor",
-        "virginica",
-        "0",
-        "1",
-        "2",
-    ]
+    assert response.json["predicted_species"] == "setosa"
 
 
 def test_missing_features(client):
@@ -70,6 +83,7 @@ def test_missing_features(client):
     )
 
     assert response.status_code == 400
+    assert "error" in response.json
 
 
 def test_invalid_measurements(client):
@@ -84,3 +98,4 @@ def test_invalid_measurements(client):
     )
 
     assert response.status_code == 400
+    assert "error" in response.json
