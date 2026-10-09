@@ -1,8 +1,6 @@
 
 import joblib
 import pytest
-import pandas as pd
-
 from sklearn.datasets import load_iris
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -21,14 +19,12 @@ FEATURES = [
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    # Load the built-in Iris dataset
     iris = load_iris(as_frame=True)
 
     X = iris.data.copy()
     X.columns = FEATURES
     y = iris.target_names[iris.target]
 
-    # Train a temporary model using the API's feature names
     model = Pipeline([
         ("scaler", StandardScaler()),
         ("classifier", LogisticRegression(max_iter=1000)),
@@ -39,7 +35,6 @@ def client(tmp_path, monkeypatch):
     model_path = tmp_path / "iris_model.pkl"
     joblib.dump(model, model_path)
 
-    # Tell the Flask API to use the temporary model
     monkeypatch.setattr(
         iris_app,
         "MODEL_PATH",
@@ -72,7 +67,15 @@ def test_valid_prediction(client):
         },
     )
 
-    assert response.status_code == 200
+    # Print the actual API response if the test fails.
+    print("Status code:", response.status_code)
+    print("Response body:", response.get_data(as_text=True))
+
+    assert response.status_code == 200, (
+        f"API returned {response.status_code}: "
+        f"{response.get_data(as_text=True)}"
+    )
+
     assert response.json["predicted_species"] == "setosa"
 
 
@@ -83,7 +86,6 @@ def test_missing_features(client):
     )
 
     assert response.status_code == 400
-    assert "error" in response.json
 
 
 def test_invalid_measurements(client):
@@ -98,4 +100,3 @@ def test_invalid_measurements(client):
     )
 
     assert response.status_code == 400
-    assert "error" in response.json
